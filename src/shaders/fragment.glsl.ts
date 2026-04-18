@@ -6,6 +6,8 @@ ${simplexNoise3D}
 uniform float uTime;
 uniform float uFrequency;
 uniform float uSpeed;
+uniform float uContourFreq;
+uniform float uLineEdge;
 
 varying float vDisplacement;  // actual mesh displacement from vertex shader
 
@@ -20,9 +22,9 @@ void main() {
   vec3 pZone = vViewPosition * 0.50 + vec3(uTime * uSpeed * 0.08, 11.3, 5.1);
   float nZone = snoise(pZone) * 0.5 + 0.5;  // 0..1
 
-  // --- Topographic contour lines (8 primary bands) ---
-  float contourFreq = 8.0;
-  float edge = 0.022;
+  // --- Topographic contour lines ---
+  float contourFreq = uContourFreq;
+  float edge = uLineEdge;
   float c    = fract(d * contourFreq + uTime * uSpeed * 0.18);
   float line = smoothstep(edge, 0.0, c) + smoothstep(1.0 - edge, 1.0, c);
   line = clamp(line, 0.0, 1.0);

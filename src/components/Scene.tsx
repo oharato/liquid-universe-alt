@@ -4,19 +4,23 @@ import { BlendFunction } from 'postprocessing'
 import * as THREE from 'three'
 import LiquidMetal from './LiquidMetal'
 import { useMouseTracker } from '../hooks/useMouse'
+import type { SceneParams } from '../types/params'
 
-export default function Scene() {
+interface Props {
+  params: SceneParams
+}
+
+export default function Scene({ params }: Props) {
   const mouseRef = useRef<THREE.Vector2>(new THREE.Vector2(0, 0))
   useMouseTracker(mouseRef)
 
   return (
     <>
-      <LiquidMetal mouseRef={mouseRef} />
-      {/* Bloom: lines glow like lit display — threshold tuned so only bright lines bloom */}
+      <LiquidMetal mouseRef={mouseRef} params={params} />
       <EffectComposer>
         <Bloom
-          intensity={1.6}
-          luminanceThreshold={0.80}
+          intensity={params.bloomIntensity}
+          luminanceThreshold={params.bloomThreshold}
           luminanceSmoothing={0.15}
           blendFunction={BlendFunction.ADD}
           mipmapBlur
