@@ -86,7 +86,7 @@ function App() {
       <Leva collapsed />
       <Canvas 
         camera={{ position: [0, 0, 4], fov: 45 }}
-        dpr={[1, 2]}
+        dpr={[1, 1.5]}
         gl={{ 
           antialias: true,
           alpha: false,
