@@ -1,59 +1,97 @@
 import { useRef, useMemo } from 'react'
-import { useFrame } from '@react-three/fiber'
-import CustomShaderMaterial from 'three-custom-shader-material/vanilla'
+import { useFrame, useThree } from '@react-three/fiber'
 import * as THREE from 'three'
-import { vertexShader } from '../shaders/vertex.glsl'
-import { fragmentShader } from '../shaders/fragment.glsl'
-import type { SceneParams } from '../types/params'
+import CustomShaderMaterial from 'three-custom-shader-material'
+import { useControls } from 'leva'
+import { vertexShader } from '../shaders/LiquidMetalShaders'
 
 interface Props {
-  mouseRef: React.MutableRefObject<THREE.Vector2>
-  params: SceneParams
+  envMap: THREE.Texture | null
+  opacity?: number
+  transparent?: boolean
+  depthWrite?: boolean
+  mode?: 'sphere' | 'fullscreen'
 }
 
-export default function LiquidMetal({ mouseRef, params }: Props) {
-  const meshRef = useRef<THREE.Mesh>(null!)
+export const LiquidMetal = ({ envMap, opacity = 1, transparent = false, depthWrite = true, mode = 'sphere' }: Props) => {
+  const materialRef = useRef<any>(null!)
+  const { viewport } = useThree()
 
-  const uniforms = useMemo(() => ({
-    uTime:        { value: 0 },
-    uMouse:       { value: new THREE.Vector2(0, 0) },
-    uFrequency:   { value: params.frequency },
-    uAmplitude:   { value: params.amplitude },
-    uSpeed:       { value: params.speed },
-    uContourFreq: { value: params.contourFreq },
-    uLineEdge:    { value: params.lineEdge },
-  }), []) // eslint-disable-line react-hooks/exhaustive-deps
+  // Leva controls for real-time tweaking
+  const controls = useControls('Liquid Metal', {
+    speed: { value: 0.2, min: 0.0, max: 2.0, step: 0.01 },
+    noiseDensity: { value: 1.5, min: 0.1, max: 5.0, step: 0.1 },
+    noiseStrength: { value: 0.2, min: 0.0, max: 1.0, step: 0.01 },
+    roughness: { value: 0.05, min: 0.0, max: 1.0, step: 0.01 },
+    metalness: { value: 1.0, min: 0.0, max: 1.0, step: 0.01 },
+    autoColor: { value: true, label: '色を自動循環' },
+    colorSpeed: { value: 0.05, min: 0.01, max: 0.5, step: 0.01, label: '色の変化スピード' },
+    color: '#2538ad',
+  }, { collapsed: true })
 
-  const csm = useMemo(() => new CustomShaderMaterial({
-    baseMaterial: THREE.MeshPhysicalMaterial,
-    vertexShader,
-    fragmentShader,
-    uniforms,
-    metalness: 0.0,
-    roughness: 1.0,
-    envMapIntensity: 0.0,
-    color: new THREE.Color(0.0, 0.0, 0.0),
-    emissive: new THREE.Color(0.0, 0.0, 0.0),
-    iridescence: 0.30,
-    iridescenceIOR: 1.45,
-    iridescenceThicknessRange: [100, 600] as [number, number],
-    side: THREE.DoubleSide,
-  }), [uniforms])
+  // Setup uniforms
+  const uniforms = useMemo(
+    () => ({
+      uTime: { value: 0 },
+      uSpeed: { value: controls.speed },
+      uNoiseDensity: { value: controls.noiseDensity },
+      uNoiseStrength: { value: controls.noiseStrength },
+    }),
+    []
+  )
 
-  useFrame(({ clock }) => {
-    uniforms.uTime.value = clock.getElapsedTime()
-    uniforms.uMouse.value.lerp(mouseRef.current, 0.06)
-    // Sync live params every frame (cheap uniform writes)
-    uniforms.uFrequency.value   = params.frequency
-    uniforms.uAmplitude.value   = params.amplitude
-    uniforms.uSpeed.value       = params.speed
-    uniforms.uContourFreq.value = params.contourFreq
-    uniforms.uLineEdge.value    = params.lineEdge
+  useFrame((state) => {
+    if (materialRef.current) {
+      // Update time uniform
+      materialRef.current.uniforms.uTime.value = state.clock.getElapsedTime()
+      // Update other uniforms from controls
+      materialRef.current.uniforms.uSpeed.value = controls.speed
+      materialRef.current.uniforms.uNoiseDensity.value = controls.noiseDensity
+      materialRef.current.uniforms.uNoiseStrength.value = controls.noiseStrength
+      
+      // Animate color if autoColor is enabled
+      if (controls.autoColor) {
+        // Calculate a shifting hue from 0.0 to 1.0
+        const hue = (state.clock.getElapsedTime() * controls.colorSpeed) % 1.0
+        // Use a fixed saturation and lightness that matches the deep #2538ad aesthetic (S:65%, L:41%)
+        materialRef.current.color.setHSL(hue, 0.65, 0.41)
+      } else {
+        // Revert to the specific color chosen in Leva
+        materialRef.current.color.set(controls.color)
+      }
+    }
   })
 
   return (
-    <mesh ref={meshRef} material={csm} rotation={[-0.45, 0, 0]}>
-      <planeGeometry args={[5.0, 5.0, 128, 128]} />
+    <mesh castShadow={mode === 'sphere'} receiveShadow={mode === 'sphere'}>
+      {/* 
+        A high segment count is required for vertex displacement to look smooth. 
+      */}
+      {mode === 'sphere' ? (
+        <sphereGeometry args={[1, 128, 128]} />
+      ) : (
+        <planeGeometry args={[viewport.width * 2.5, viewport.height * 2.5, 256, 256]} />
+      )}
+      
+      <CustomShaderMaterial
+        ref={materialRef}
+        baseMaterial={THREE.MeshPhysicalMaterial}
+        vertexShader={vertexShader}
+        uniforms={uniforms}
+        // Environment map for this specific mesh
+        envMap={envMap}
+        envMapIntensity={1}
+        // Transparency controls for crossfading
+        opacity={opacity}
+        transparent={transparent}
+        depthWrite={depthWrite}
+        // Properties applied to the base material
+        roughness={controls.roughness}
+        metalness={controls.metalness}
+        reflectivity={1}
+        clearcoat={1.0}
+        clearcoatRoughness={0.1}
+      />
     </mesh>
   )
 }
