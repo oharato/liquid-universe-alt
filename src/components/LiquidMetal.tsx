@@ -14,6 +14,7 @@ interface Props {
 }
 
 export const LiquidMetal = ({ envMap, opacity = 1, transparent = false, depthWrite = true, mode = 'sphere' }: Props) => {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const materialRef = useRef<any>(null!)
   const { viewport } = useThree()
 
@@ -33,9 +34,9 @@ export const LiquidMetal = ({ envMap, opacity = 1, transparent = false, depthWri
   const uniforms = useMemo(
     () => ({
       uTime: { value: 0 },
-      uSpeed: { value: controls.speed },
-      uNoiseDensity: { value: controls.noiseDensity },
-      uNoiseStrength: { value: controls.noiseStrength },
+      uSpeed: { value: 0 },
+      uNoiseDensity: { value: 0 },
+      uNoiseStrength: { value: 0 },
     }),
     []
   )

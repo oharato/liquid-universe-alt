@@ -32,6 +32,7 @@ export const MorphingEnvironment = ({ preset, background, crossfadeDuration, mod
   
   useEffect(() => {
     if (preset !== currentPreset) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setPrevPreset(currentPreset)
       setPrevTexture(currentTexture)
       setCurrentPreset(preset)
