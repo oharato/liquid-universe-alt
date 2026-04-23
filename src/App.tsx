@@ -3,6 +3,7 @@ import { OrbitControls, ContactShadows } from '@react-three/drei'
 import { useControls, Leva } from 'leva'
 import { useEffect, useRef } from 'react'
 import { MorphingEnvironment } from './components/MorphingEnvironment'
+import type { LiquidMetalControls } from './components/LiquidMetal'
 import './App.css'
 
 type PresetType = "apartment" | "city" | "dawn" | "forest" | "lobby" | "night" | "park" | "studio" | "sunset" | "warehouse";
@@ -54,17 +55,26 @@ function App() {
     background: { value: false, label: '背景として表示' }
   }))
 
+  // Liquid Metal controls - defined ONCE here, passed as props
+  const metalControls = useControls('Liquid Metal', {
+    speed: { value: 0.2, min: 0.0, max: 2.0, step: 0.01 },
+    noiseDensity: { value: 1.5, min: 0.1, max: 5.0, step: 0.1 },
+    noiseStrength: { value: 0.2, min: 0.0, max: 1.0, step: 0.01 },
+    roughness: { value: 0.05, min: 0.0, max: 1.0, step: 0.01 },
+    metalness: { value: 1.0, min: 0.0, max: 1.0, step: 0.01 },
+    autoColor: { value: true, label: '色を自動循環' },
+    colorSpeed: { value: 0.05, min: 0.01, max: 0.5, step: 0.01, label: '色の変化スピード' },
+    color: '#2538ad',
+  }, { collapsed: true }) as unknown as LiquidMetalControls
+
   const currentPresetIndex = useRef(0);
 
   useEffect(() => {
     if (!envControls.autoSwitch) return;
 
     const intervalId = setInterval(() => {
-      // Find the next index
       currentPresetIndex.current = (currentPresetIndex.current + 1) % PRESETS.length;
       const nextPreset = PRESETS[currentPresetIndex.current];
-      
-      // Update Leva control value programmatically
       setEnvControls({ preset: nextPreset });
     }, envControls.switchInterval * 1000);
 
@@ -73,24 +83,30 @@ function App() {
 
   return (
     <div className="app-container">
-      {/* Minimize the Leva UI panel by default */}
       <Leva collapsed />
-      <Canvas camera={{ position: [0, 0, 4], fov: 45 }}>
+      <Canvas 
+        camera={{ position: [0, 0, 4], fov: 45 }}
+        dpr={[1, 2]}
+        gl={{ 
+          antialias: true,
+          alpha: false,
+          powerPreference: 'high-performance',
+        }}
+      >
         <CameraReset mode={envControls.mode as 'sphere' | 'fullscreen'} />
+        <color attach="background" args={['#111111']} />
         <directionalLight position={[10, 10, 5]} intensity={1} />
         
-        {/* Reset group position to center for fullscreen to avoid bottom edge showing */}
         <group position={envControls.mode === 'sphere' ? [0, 0.2, 0] : [0, 0, 0]}>
-          {/* MorphingEnvironment handles both the background and the LiquidMetal meshes */}
           <MorphingEnvironment 
             preset={envControls.preset as PresetType} 
             background={envControls.background} 
             crossfadeDuration={envControls.crossfadeDuration}
             mode={envControls.mode as 'sphere' | 'fullscreen'}
+            metalControls={metalControls}
           />
         </group>
 
-        {/* Shadows only make sense when we have a floating object */}
         {envControls.mode === 'sphere' && (
           <ContactShadows 
             position={[0, -1.2, 0]} 
