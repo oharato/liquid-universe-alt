@@ -24,8 +24,10 @@ export const LiquidMetal = ({ envMap, opacity = 1, transparent = false, depthWri
     noiseStrength: { value: 0.2, min: 0.0, max: 1.0, step: 0.01 },
     roughness: { value: 0.05, min: 0.0, max: 1.0, step: 0.01 },
     metalness: { value: 1.0, min: 0.0, max: 1.0, step: 0.01 },
-    color: '#ffffff',
-  })
+    autoColor: { value: true, label: '色を自動循環' },
+    colorSpeed: { value: 0.05, min: 0.01, max: 0.5, step: 0.01, label: '色の変化スピード' },
+    color: '#2538ad',
+  }, { collapsed: true })
 
   // Setup uniforms
   const uniforms = useMemo(
@@ -46,6 +48,17 @@ export const LiquidMetal = ({ envMap, opacity = 1, transparent = false, depthWri
       materialRef.current.uniforms.uSpeed.value = controls.speed
       materialRef.current.uniforms.uNoiseDensity.value = controls.noiseDensity
       materialRef.current.uniforms.uNoiseStrength.value = controls.noiseStrength
+      
+      // Animate color if autoColor is enabled
+      if (controls.autoColor) {
+        // Calculate a shifting hue from 0.0 to 1.0
+        const hue = (state.clock.getElapsedTime() * controls.colorSpeed) % 1.0
+        // Use a fixed saturation and lightness that matches the deep #2538ad aesthetic (S:65%, L:41%)
+        materialRef.current.color.setHSL(hue, 0.65, 0.41)
+      } else {
+        // Revert to the specific color chosen in Leva
+        materialRef.current.color.set(controls.color)
+      }
     }
   })
 
@@ -75,7 +88,6 @@ export const LiquidMetal = ({ envMap, opacity = 1, transparent = false, depthWri
         // Properties applied to the base material
         roughness={controls.roughness}
         metalness={controls.metalness}
-        color={controls.color}
         reflectivity={1}
         clearcoat={1.0}
         clearcoatRoughness={0.1}

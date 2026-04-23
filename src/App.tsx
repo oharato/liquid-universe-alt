@@ -1,6 +1,6 @@
 import { Canvas, useThree } from '@react-three/fiber'
 import { OrbitControls, ContactShadows } from '@react-three/drei'
-import { useControls } from 'leva'
+import { useControls, Leva } from 'leva'
 import { useEffect, useRef } from 'react'
 import { MorphingEnvironment } from './components/MorphingEnvironment'
 import './App.css'
@@ -30,7 +30,7 @@ function App() {
         '球体 (Sphere)': 'sphere',
         '全画面 (Fullscreen)': 'fullscreen'
       },
-      value: 'sphere',
+      value: 'fullscreen',
       label: '表示モード'
     },
     preset: {
@@ -50,8 +50,8 @@ function App() {
     },
     autoSwitch: { value: true, label: '自動切り替え' },
     switchInterval: { value: 5, min: 1, max: 20, step: 0.5, label: '切り替え間隔(秒)' },
-    crossfadeDuration: { value: 1.5, min: 0.1, max: 5.0, step: 0.1, label: 'フェード時間(秒)' },
-    background: { value: true, label: '背景として表示' }
+    crossfadeDuration: { value: 5.0, min: 0.1, max: 10.0, step: 0.1, label: 'フェード時間(秒)' },
+    background: { value: false, label: '背景として表示' }
   }))
 
   const currentPresetIndex = useRef(0);
@@ -73,6 +73,8 @@ function App() {
 
   return (
     <div className="app-container">
+      {/* Minimize the Leva UI panel by default */}
+      <Leva collapsed />
       <Canvas camera={{ position: [0, 0, 4], fov: 45 }}>
         <CameraReset mode={envControls.mode as 'sphere' | 'fullscreen'} />
         <directionalLight position={[10, 10, 5]} intensity={1} />
