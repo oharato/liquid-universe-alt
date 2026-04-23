@@ -1,12 +1,21 @@
 import { useRef, useMemo } from 'react'
-import { useFrame } from '@react-three/fiber'
+import { useFrame, useThree } from '@react-three/fiber'
 import * as THREE from 'three'
 import CustomShaderMaterial from 'three-custom-shader-material'
 import { useControls } from 'leva'
 import { vertexShader } from '../shaders/LiquidMetalShaders'
 
-export const LiquidMetal = () => {
+interface Props {
+  envMap: THREE.Texture | null
+  opacity?: number
+  transparent?: boolean
+  depthWrite?: boolean
+  mode?: 'sphere' | 'fullscreen'
+}
+
+export const LiquidMetal = ({ envMap, opacity = 1, transparent = false, depthWrite = true, mode = 'sphere' }: Props) => {
   const materialRef = useRef<any>(null!)
+  const { viewport } = useThree()
 
   // Leva controls for real-time tweaking
   const controls = useControls('Liquid Metal', {
@@ -41,18 +50,28 @@ export const LiquidMetal = () => {
   })
 
   return (
-    <mesh castShadow receiveShadow>
+    <mesh castShadow={mode === 'sphere'} receiveShadow={mode === 'sphere'}>
       {/* 
         A high segment count is required for vertex displacement to look smooth. 
-        Using 128x128 as recommended.
       */}
-      <sphereGeometry args={[1, 128, 128]} />
+      {mode === 'sphere' ? (
+        <sphereGeometry args={[1, 128, 128]} />
+      ) : (
+        <planeGeometry args={[viewport.width * 2.5, viewport.height * 2.5, 256, 256]} />
+      )}
       
       <CustomShaderMaterial
         ref={materialRef}
         baseMaterial={THREE.MeshPhysicalMaterial}
         vertexShader={vertexShader}
         uniforms={uniforms}
+        // Environment map for this specific mesh
+        envMap={envMap}
+        envMapIntensity={1}
+        // Transparency controls for crossfading
+        opacity={opacity}
+        transparent={transparent}
+        depthWrite={depthWrite}
         // Properties applied to the base material
         roughness={controls.roughness}
         metalness={controls.metalness}
