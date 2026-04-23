@@ -80,7 +80,12 @@ uniform float uNoiseStrength;
 
 // To calculate normal accurately we need to calculate noise for neighboring points
 vec3 getNoisePosition(vec3 position, vec3 baseNormal) {
-    float noiseVal = snoise(position * uNoiseDensity + uTime * uSpeed) * uNoiseStrength;
+    // Break the symmetry of simplex noise by using an asymmetric time vector
+    // and a large spatial offset, preventing geometric artifacts (like hexagons) at the origin.
+    vec3 timeVec = vec3(uTime * uSpeed, uTime * uSpeed * 0.8, uTime * uSpeed * 0.6);
+    vec3 spatialOffset = vec3(43.21, -15.34, 87.65);
+    
+    float noiseVal = snoise(position * uNoiseDensity + spatialOffset + timeVec) * uNoiseStrength;
     // Displace along the normal
     return position + baseNormal * noiseVal;
 }
