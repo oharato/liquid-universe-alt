@@ -1,113 +1,202 @@
-export const vertexShader = `
-// Simplex 3D Noise 
-// by Ian McEwan, Ashima Arts
-vec4 permute(vec4 x){return mod(((x*34.0)+1.0)*x, 289.0);}
-vec4 taylorInvSqrt(vec4 r){return 1.79284291400159 - 0.85373472095314 * r;}
+import { simplexNoise3D } from './noise.glsl'
 
-float snoise(vec3 v){ 
-  const vec2  C = vec2(1.0/6.0, 1.0/3.0) ;
-  const vec4  D = vec4(0.0, 0.5, 1.0, 2.0);
-
-  // First corner
-  vec3 i  = floor(v + dot(v, C.yyy) );
-  vec3 x0 = v - i + dot(i, C.xxx) ;
-
-  // Other corners
-  vec3 g = step(x0.yzx, x0.xyz);
-  vec3 l = 1.0 - g;
-  vec3 i1 = min( g.xyz, l.zxy );
-  vec3 i2 = max( g.xyz, l.zxy );
-
-  //  x0 = x0 - 0.0 + 0.0 * C 
-  vec3 x1 = x0 - i1 + 1.0 * C.xxx;
-  vec3 x2 = x0 - i2 + 2.0 * C.xxx;
-  vec3 x3 = x0 - 1.0 + 3.0 * C.xxx;
-
-  // Permutations
-  i = mod(i, 289.0 ); 
-  vec4 p = permute( permute( permute( 
-             i.z + vec4(0.0, i1.z, i2.z, 1.0 ))
-           + i.y + vec4(0.0, i1.y, i2.y, 1.0 )) 
-           + i.x + vec4(0.0, i1.x, i2.x, 1.0 ));
-
-  // Gradients
-  // ( N*N points uniformly over a square, mapped onto an octahedron.)
-  float n_ = 1.0/7.0; // N=7
-  vec3  ns = n_ * D.wyz - D.xzx;
-
-  vec4 j = p - 49.0 * floor(p * ns.z *ns.z);  //  mod(p,N*N)
-
-  vec4 x_ = floor(j * ns.z);
-  vec4 y_ = floor(j - 7.0 * x_ );    // mod(j,N)
-
-  vec4 x = x_ *ns.x + ns.yyyy;
-  vec4 y = y_ *ns.x + ns.yyyy;
-  vec4 h = 1.0 - abs(x) - abs(y);
-
-  vec4 b0 = vec4( x.xy, y.xy );
-  vec4 b1 = vec4( x.zw, y.zw );
-
-  vec4 s0 = floor(b0)*2.0 + 1.0;
-  vec4 s1 = floor(b1)*2.0 + 1.0;
-  vec4 sh = -step(h, vec4(0.0));
-
-  vec4 a0 = b0.xzyw + s0.xzyw*sh.xxyy ;
-  vec4 a1 = b1.xzyw + s1.xzyw*sh.zzww ;
-
-  vec3 p0 = vec3(a0.xy,h.x);
-  vec3 p1 = vec3(a0.zw,h.y);
-  vec3 p2 = vec3(a1.xy,h.z);
-  vec3 p3 = vec3(a1.zw,h.w);
-
-  //Normalise gradients
-  vec4 norm = taylorInvSqrt(vec4(dot(p0,p0), dot(p1,p1), dot(p2, p2), dot(p3,p3)));
-  p0 *= norm.x;
-  p1 *= norm.y;
-  p2 *= norm.z;
-  p3 *= norm.w;
-
-  // Mix final noise value
-  vec4 m = max(0.6 - vec4(dot(x0,x0), dot(x1,x1), dot(x2,x2), dot(x3,x3)), 0.0);
-  m = m * m;
-  return 42.0 * dot( m*m, vec4( dot(p0,x0), dot(p1,x1), 
-                                dot(p2,x2), dot(p3,x3) ) );
-}
+export const vertexShader = /* glsl */ `
+${simplexNoise3D}
 
 uniform float uTime;
 uniform float uSpeed;
 uniform float uNoiseDensity;
 uniform float uNoiseStrength;
+uniform float uDomainWarp;
+uniform float uCurlStrength;
+uniform float uRippleStrength;
+uniform vec2  uMouse;
+uniform float uMouseStrength;
+uniform int   uIsMetaballs;
+uniform vec4  uMetaballs[8];
 
-// To calculate normal accurately we need to calculate noise for neighboring points
-vec3 getNoisePosition(vec3 position, vec3 baseNormal) {
-    // Break the symmetry of simplex noise by using an asymmetric time vector
-    // and a large spatial offset, preventing geometric artifacts (like hexagons) at the origin.
-    vec3 timeVec = vec3(uTime * uSpeed, uTime * uSpeed * 0.8, uTime * uSpeed * 0.6);
+varying float vDisplacement;
+varying float vTurbulence;
+varying vec3  vWorldPos;
+
+// Evaluate exact analytical metaball field & outward normal in [0..1] grid coordinates
+void evaluateMetaballSurface(inout vec3 pos, out vec3 exactNormal) {
+    vec3 b = pos * 0.5 + 0.5;
+    float field = 0.0;
+    vec3 grad = vec3(0.0);
+
+    for (int i = 0; i < 8; i++) {
+        vec3 c = uMetaballs[i].xyz;
+        float strength = uMetaballs[i].w;
+        if (strength > 0.0001) {
+            vec3 d = b - c;
+            float r2 = dot(d, d) + 0.0001;
+            float val = strength / r2 - 12.0;
+            if (val > 0.0) {
+                field += val;
+                // Smooth falloff weight near cutoff so gradient is C1 continuous
+                float edgeSmooth = smoothstep(0.0, 12.0, val);
+                grad += (2.0 * strength * d / (r2 * r2)) * edgeSmooth;
+            }
+        }
+    }
+
+    float gradLen = length(grad);
+    if (gradLen > 0.0001) {
+        exactNormal = grad / gradLen;
+        // One step of Newton-Raphson projection onto the exact F(b) = 80.0 isosurface
+        // Eliminates polygonal MarchingCubes stepping artifacts on the silhouette
+        float isoDiff = clamp((field - 80.0) / gradLen, -0.022, 0.022);
+        b += exactNormal * isoDiff;
+        pos = b * 2.0 - 1.0;
+
+        // Re-evaluate smooth analytical gradient at refined position
+        vec3 grad2 = vec3(0.0);
+        for (int i = 0; i < 8; i++) {
+            vec3 c = uMetaballs[i].xyz;
+            float strength = uMetaballs[i].w;
+            if (strength > 0.0001) {
+                vec3 d = b - c;
+                float r2 = dot(d, d) + 0.0001;
+                float val = strength / r2 - 12.0;
+                if (val > 0.0) {
+                    float edgeSmooth = smoothstep(0.0, 12.0, val);
+                    grad2 += (2.0 * strength * d / (r2 * r2)) * edgeSmooth;
+                }
+            }
+        }
+        if (length(grad2) > 0.0001) {
+            exactNormal = normalize(grad2);
+        }
+    } else {
+        exactNormal = length(normal) > 0.0001 ? normalize(normal) : vec3(0.0, 0.0, 1.0);
+    }
+}
+
+// Evaluate surface height using precomputed domain/curl warp offset (ultra-fast for neighbor normals)
+float sampleFluidHeight(vec3 pos, vec3 totalOffset, float curlRidge, float t) {
+    vec3 timeVec = vec3(t, t * 0.82, t * 0.63);
     vec3 spatialOffset = vec3(43.21, -15.34, 87.65);
-    
-    float noiseVal = snoise(position * uNoiseDensity + spatialOffset + timeVec) * uNoiseStrength;
-    // Displace along the normal
-    return position + baseNormal * noiseVal;
+    vec3 p = pos * uNoiseDensity + spatialOffset + totalOffset;
+
+    float baseFluid = fbm(p + timeVec);
+
+    // Multi-source harmonic interference ripples
+    float ripples = 0.0;
+    if (uRippleStrength > 0.001) {
+        vec2 src1 = vec2(sin(t * 0.7) * 0.6, cos(t * 0.5) * 0.6);
+        vec2 src2 = vec2(cos(t * 0.4) * -0.8, sin(t * 0.9) * 0.5);
+        vec2 src3 = vec2(sin(t * 0.6 + 1.5) * 0.5, cos(t * 0.8 + 2.0) * -0.7);
+
+        ripples =
+            sin(length(pos.xy - src1) * 5.0 - t * 6.0) * 0.40 +
+            sin(length(pos.xy - src2) * 4.2 - t * 5.0) * 0.35 +
+            sin(length(pos.xy - src3) * 6.0 - t * 7.2) * 0.25;
+    }
+
+    // Interactive pointer / magnetic ferrofluid pull
+    float mouseEffect = 0.0;
+    if (uMouseStrength > 0.001) {
+        float mouseDist = length(pos.xy - uMouse);
+        float mouseGaussian = exp(-mouseDist * mouseDist * 2.2);
+        float mouseRipple = sin(mouseDist * 10.0 - uTime * 8.0) * exp(-mouseDist * 1.8);
+        mouseEffect = (mouseGaussian * 0.7 + mouseRipple * 0.3) * uMouseStrength;
+    }
+
+    return (baseFluid + curlRidge + ripples * uRippleStrength * 0.35) * uNoiseStrength + mouseEffect * 0.25;
 }
 
 void main() {
-    // 1. Calculate displaced position
-    vec3 displacedPosition = getNoisePosition(position, normal);
+    vec3 basePos = position;
+    vec3 unitNormal;
 
-    // 2. Re-calculate normals using central difference
-    float epsilon = 0.001;
-    vec3 tangent = normalize(cross(normal, vec3(0.0, 1.0, 0.0)));
-    // prevent degenerate tangent if normal is parallel to UP vector
-    if (length(tangent) < 0.001) tangent = normalize(cross(normal, vec3(1.0, 0.0, 0.0)));
-    vec3 bitangent = normalize(cross(normal, tangent));
+    if (uIsMetaballs == 1) {
+        evaluateMetaballSurface(basePos, unitNormal);
+    } else {
+        unitNormal = length(normal) > 0.0001 ? normalize(normal) : vec3(0.0, 0.0, 1.0);
+    }
 
-    vec3 pTangent = getNoisePosition(position + tangent * epsilon, normal);
-    vec3 pBitangent = getNoisePosition(position + bitangent * epsilon, normal);
-    
+    float t = uTime * uSpeed;
+    vec3 timeVec = vec3(t, t * 0.82, t * 0.63);
+    vec3 spatialOffset = vec3(43.21, -15.34, 87.65);
+    vec3 baseP = basePos * uNoiseDensity + spatialOffset;
+
+    // 1. Compute Curl Noise & Domain Warp ONCE per vertex
+    vec3 curlVel = vec3(0.0);
+    if (uCurlStrength > 0.001) {
+        curlVel = fastCurl(baseP * 0.65 + timeVec * 0.45) * uCurlStrength;
+    }
+
+    vec3 warp = vec3(0.0);
+    if (uDomainWarp > 0.001) {
+        warp = vec3(
+            snoise(baseP + timeVec * 0.7),
+            snoise(baseP + vec3(5.2, 1.3, 2.8) - timeVec * 0.6),
+            snoise(baseP + vec3(1.7, 9.2, 4.1) + timeVec * 0.5)
+        );
+    }
+
+    vec3 totalOffset = curlVel * 0.45 + warp * uDomainWarp;
+    float curlRidge = dot(curlVel, unitNormal) * 0.25;
+
+    // 2. Displaced center vertex
+    float disp = sampleFluidHeight(basePos, totalOffset, curlRidge, t);
+    vec3 displacedPosition = basePos + unitNormal * disp;
+
+    // 3. Re-calculate normals using 2 forward-difference neighbor samples
+    float epsilon = 0.008;
+    vec3 rawTangent = cross(unitNormal, vec3(0.0, 1.0, 0.0));
+    if (length(rawTangent) < 0.001) {
+        rawTangent = cross(unitNormal, vec3(1.0, 0.0, 0.0));
+    }
+    vec3 tangent = normalize(rawTangent);
+    vec3 bitangent = normalize(cross(unitNormal, tangent));
+
+    vec3 posT = basePos + tangent * epsilon;
+    vec3 posB = basePos + bitangent * epsilon;
+    vec3 pTangent = posT + unitNormal * sampleFluidHeight(posT, totalOffset, curlRidge, t);
+    vec3 pBitangent = posB + unitNormal * sampleFluidHeight(posB, totalOffset, curlRidge, t);
+
     vec3 newNormal = normalize(cross(pTangent - displacedPosition, pBitangent - displacedPosition));
 
-    // 3. Output to CSM
+    vDisplacement = disp;
+    vTurbulence = length(totalOffset) * 0.6 + abs(disp) * 2.0;
+    vWorldPos = (modelMatrix * vec4(displacedPosition, 1.0)).xyz;
+
     csm_Position = displacedPosition;
     csm_Normal = newNormal;
 }
-`;
+`
+
+export const fragmentShader = /* glsl */ `
+uniform float uTime;
+uniform float uRoughness;
+uniform float uIridescence;
+uniform float uCausticGlow;
+uniform vec3  uGlowColor;
+
+varying float vDisplacement;
+varying float vTurbulence;
+varying vec3  vWorldPos;
+
+void main() {
+    // Normalize displacement factor into roughly 0..1 range
+    float normDisp = clamp(vDisplacement * 2.5 + 0.5, 0.0, 1.0);
+
+    // Dynamic micro-roughness: wave crests become mirror-smooth, valleys retain subtle weight
+    float dynamicRoughness = clamp(uRoughness * mix(1.35, 0.35, normDisp), 0.005, 1.0);
+    csm_Roughness = dynamicRoughness;
+
+    // Modulate thin-film iridescence thickness / strength across turbulent eddies
+    float iridMod = clamp(uIridescence * (0.65 + 0.55 * sin(vTurbulence * 4.0 + uTime * 0.5)), 0.0, 1.0);
+    csm_Iridescence = iridMod;
+
+    // Optional interference / caustic contour glow along high-curvature wave crests
+    if (uCausticGlow > 0.001) {
+        float phase = fract(vDisplacement * 8.0 - uTime * 0.25);
+        float contour = smoothstep(0.08, 0.0, phase) + smoothstep(0.92, 1.0, phase);
+        float crestGlow = smoothstep(0.55, 0.95, normDisp) * 0.4 + contour * 0.6;
+        csm_Emissive = uGlowColor * crestGlow * uCausticGlow * 2.5;
+    }
+}
+`

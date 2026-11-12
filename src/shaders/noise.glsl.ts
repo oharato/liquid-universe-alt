@@ -1,6 +1,6 @@
 /**
- * 3D Simplex Noise + FBM (Fractional Brownian Motion)
- * Based on: Stefan Gustavson's implementation
+ * 3D Simplex Noise, 3-Octave FBM (Fractional Brownian Motion),
+ * and Fast Divergence-Free 3D Curl Noise for real-time 60fps GPU shaders.
  */
 export const simplexNoise3D = /* glsl */ `
 vec3 mod289_3(vec3 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
@@ -64,16 +64,28 @@ float snoise(vec3 v) {
   return 42.0 * dot(m*m, vec4(dot(p0,x0), dot(p1,x1), dot(p2,x2), dot(p3,x3)));
 }
 
-// Fractional Brownian Motion — 4 octaves
+// Fractional Brownian Motion — 3 octaves (sweet spot for 60fps vertex displacement)
 float fbm(vec3 p) {
   float value = 0.0;
   float amplitude = 0.5;
   float frequency = 1.0;
-  for (int i = 0; i < 4; i++) {
+  for (int i = 0; i < 3; i++) {
     value += amplitude * snoise(p * frequency);
     amplitude *= 0.5;
     frequency *= 2.0;
   }
   return value;
+}
+
+// Fast 3D Curl-like rotational flow using forward differences (4 snoise calls instead of 18)
+vec3 fastCurl(vec3 p) {
+  const float e = 0.08;
+  float n0 = snoise(p);
+  float nx = snoise(p + vec3(e, 0.0, 0.0)) - n0;
+  float ny = snoise(p + vec3(0.0, e, 0.0)) - n0;
+  float nz = snoise(p + vec3(0.0, 0.0, e)) - n0;
+  vec3 grad = vec3(nx, ny, nz) / e;
+  // Cross gradient with an offset axis to produce divergence-free swirling vectors
+  return cross(grad, normalize(vec3(0.58, -0.71, 0.40)));
 }
 `
