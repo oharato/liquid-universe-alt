@@ -37,7 +37,7 @@
 | カテゴリ | ツール / ライブラリ | バージョン | 主な役割・新機能活用 |
 |---|---|---|---|
 | ランタイム | Node.js (LTS) | `26.13.1` | `mise` 管理 |
-| パッケージ管理 | pnpm | `12.18.0` | `https://npm.flatt.tech` レジストリ利用 |
+| パッケージ管理 | pnpm / npm | `12.18.0` / `12.2.2` | `https://npm.flatt.tech` レジストリ利用 |
 | UIフレームワーク | React / React DOM | `19.3.1` | Concurrent rendering |
 | 3Dエンジン | Three.js | `0.187.0` | PBR (`iridescence`, `anisotropy`, `clearcoat`) |
 | React 3Dレンダラー | `@react-three/fiber` | `9.8.2` | Three.js r187 対応・ポインター追跡 |
